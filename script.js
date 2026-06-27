@@ -11,26 +11,30 @@ window.addEventListener('load', () => {
 
 let started = false;
 
-// mainVideo.pause();
-mainVideo.loop = false;
+// Only run if mainVideo exists
+if (mainVideo) {
+  mainVideo.loop = false;
+  mainVideo.preload = 'auto';
 
-// Ensure video preloading
-mainVideo.preload = 'auto';
-
-mainVideo.addEventListener('ended', () => {
-  mainVideo.currentTime = mainVideo.duration - 0.001;
-  mainVideo.pause();
-});
+  mainVideo.addEventListener('ended', () => {
+    mainVideo.currentTime = mainVideo.duration - 0.001;
+    mainVideo.pause();
+  });
+}
 
 openScreen.addEventListener('click', () => {
   if (started) return;
-  mainVideo.play().catch(err => console.log('video play:', err));
+  started = true;
+
+  // Play video if it exists
+  if (mainVideo) {
+    mainVideo.play().catch(err => console.log('video play:', err));
+  }
+  
   document.body.classList.remove('no-scroll');
 
-  started = true;
-  
   /* Fade out curtain image smoothly */
-  if (curtainImg[0]) {
+  if (curtainImg && curtainImg.length > 0) {
     gsap.to(curtainImg[0], {
       opacity: 0,
       duration: 0.6,
@@ -41,11 +45,13 @@ openScreen.addEventListener('click', () => {
     });
   }
 
-
   /* 2 ─ Fade in music */
   if (audio) {
     audio.currentTime = 0;
     audio.volume = 0;
+    
+    // UNCOMMENT THIS LINE to enable audio
+    audio.play().catch(err => console.log('audio play error:', err));
 
     let vol = 0;
     const fadeAudio = setInterval(() => {
@@ -59,24 +65,28 @@ openScreen.addEventListener('click', () => {
   }
 
   /* 3 ─ Fade out hint */
-  gsap.to('.open-hint', {
-    opacity: 0,
-    duration: 0.8,
-    ease: 'power2.out',
-    onComplete: () => {
-      const hint = document.querySelector('.open-hint');
-      if (hint) hint.style.display = 'none';
-    }
-  });
+  const hint = document.querySelector('.open-hint');
+  if (hint) {
+    gsap.to(hint, {
+      opacity: 0,
+      duration: 0.8,
+      ease: 'power2.out',
+      onComplete: () => {
+        hint.style.display = 'none';
+      }
+    });
+  }
 
   /* 4 ─ After 1.5 s → reveal hero content over the video */
   setTimeout(() => {
-    gsap.to(heroContent, {
-      opacity: 1,
-      y: 0,
-      duration: 1.5,
-      ease: 'power3.out'
-    });
+    if (heroContent) {
+      gsap.to(heroContent, {
+        opacity: 1,
+        y: 0,
+        duration: 1.5,
+        ease: 'power3.out'
+      });
+    }
   }, 1500);
 });
 
@@ -85,12 +95,14 @@ openScreen.addEventListener('click', () => {
    3-COIN SCRATCH SYSTEM
 ════════════════════════════════ */
 const NUM_COINS = 3;
-const REVEAL_PCT = 0.5;  // 50% scratched triggers full reveal per coin
+const REVEAL_PCT = 0.5;
 let coinsRevealed = 0;
 let allDone = false;
 
 function initCoin(index) {
   const canvas = document.getElementById('canvas-' + index);
+  if (!canvas) return; // Skip if canvas doesn't exist
+  
   const ctx = canvas.getContext('2d');
   const W = canvas.width;
   const H = canvas.height;
@@ -122,7 +134,7 @@ function initCoin(index) {
     const angle = (i / 12) * Math.PI * 2;
     ctx.beginPath();
     ctx.moveTo(W / 2, H / 2);
-    ctx.lineTo(W / 2 + Math.cos(angle) * W * 0.45, H / 2 + Math.sin(angle) * H * 0.45);
+    ctx.lineTo(W / 2 + Math.cos(angle) * W * 0.45, W / 2 + Math.sin(angle) * H * 0.45);
     ctx.stroke();
   }
 
@@ -158,14 +170,12 @@ function initCoin(index) {
     if (revealed) return;
     const data = ctx.getImageData(0, 0, W, H).data;
     let cleared = 0;
-    // sample every 4th pixel for performance
     for (let i = 3; i < data.length; i += 16) {
       if (data[i] < 128) cleared++;
     }
     const pct = cleared / (W * H / 4);
     if (pct > REVEAL_PCT) {
       revealed = true;
-      // Fully clear this canvas
       ctx.clearRect(0, 0, W, H);
       coinsRevealed++;
       checkAllRevealed();
@@ -200,16 +210,21 @@ function initCoin(index) {
 function checkAllRevealed() {
   if (coinsRevealed >= NUM_COINS && !allDone) {
     allDone = true;
-    document.getElementById('scratch-hint').classList.add('done');
+    const hint = document.getElementById('scratch-hint');
+    if (hint) hint.classList.add('done');
+    
     setTimeout(() => {
       fireConfetti();
-      document.getElementById('married-msg').classList.add('show');
+      const msg = document.getElementById('married-msg');
+      if (msg) msg.classList.add('show');
       document.body.classList.remove('no-scroll');
     }, 300);
   } else if (coinsRevealed === 1) {
-    document.getElementById('scratch-hint').textContent = '✦ Keep scratching ✦';
+    const hint = document.getElementById('scratch-hint');
+    if (hint) hint.textContent = '✦ Keep scratching ✦';
   } else if (coinsRevealed === 2) {
-    document.getElementById('scratch-hint').textContent = '✦ One more! ✦';
+    const hint = document.getElementById('scratch-hint');
+    if (hint) hint.textContent = '✦ One more! ✦';
   }
 }
 
@@ -218,48 +233,64 @@ for (let i = 0; i < NUM_COINS; i++) {
   initCoin(i);
 }
 
+/* ════════════════════════════════
+   SCRATCH SECTION SCROLL LOCK - ONCE PER SESSION (FIXED)
+════════════════════════════════ */
 const scratchSection = document.querySelector('.hero');
 let heroEndLocked = false;
 
-function checkHeroEnd() {
+// Check session storage for existing lock
+let hasLockedThisSession = sessionStorage.getItem('scrollLockedInvite') === 'true';
+
+// If already locked from before, apply lock immediately
+if (hasLockedThisSession) {
+  document.body.classList.add('no-scroll');
+  console.log('🔄 Scroll lock restored from session storage');
+}
+
+function checkAndLockOnce() {
+  if (hasLockedThisSession) return;
   if (!scratchSection) return;
 
   const heroRect = scratchSection.getBoundingClientRect();
   const hasHeroEnded = heroRect.bottom <= 0;
 
-  if (hasHeroEnded && !heroEndLocked) {
-    heroEndLocked = true;
+  if (hasHeroEnded) {
+    hasLockedThisSession = true;
     document.body.classList.add('no-scroll');
-    console.log('Hero ended - scroll locked');
-  }
-  else if (!hasHeroEnded && heroEndLocked) {
-    heroEndLocked = true;
-    document.body.classList.remove('no-scroll');
-    console.log('Hero visible - scroll unlocked');
+    sessionStorage.setItem('scrollLockedInvite', 'true');
+    console.log('🔒 Hero ended - scroll locked for this session');
+
+    // Remove event listeners after locking
+    window.removeEventListener('scroll', checkAndLockOnce);
+    window.removeEventListener('resize', checkAndLockOnce);
   }
 }
 
-let ticking = false;
-window.addEventListener('scroll', () => {
-  if (!ticking) {
-    requestAnimationFrame(() => {
-      checkHeroEnd();
-      ticking = false;
-    });
-    ticking = true;
-  }
-});
-
-window.addEventListener('load', checkHeroEnd);
-window.addEventListener('resize', checkHeroEnd);
-
-checkHeroEnd();
+// Only attach listeners if not already locked
+if (!hasLockedThisSession) {
+  let ticking = false;
+  window.addEventListener('scroll', () => {
+    if (!ticking) {
+      requestAnimationFrame(() => {
+        checkAndLockOnce();
+        ticking = false;
+      });
+      ticking = true;
+    }
+  });
+  window.addEventListener('resize', checkAndLockOnce);
+  window.addEventListener('load', checkAndLockOnce);
+  checkAndLockOnce();
+}
 
 /* ════════════════════════════════
    CONFETTI EXPLOSION
 ════════════════════════════════ */
 function fireConfetti() {
   const wrap = document.getElementById('confetti-wrap');
+  if (!wrap) return;
+  
   wrap.style.display = 'block';
 
   const colors = [
@@ -304,16 +335,21 @@ const pad = n => String(n).padStart(2, '0');
 
 function updateCountdown() {
   const diff = eventDate - Date.now();
-  if (diff <= 0) {
-    ['d', 'h', 'm', 's'].forEach(id => {
-      document.getElementById(id).textContent = '00';
-    });
-    return;
-  }
-  document.getElementById('d').textContent = pad(Math.floor(diff / 86400000));
-  document.getElementById('h').textContent = pad(Math.floor((diff % 86400000) / 3600000));
-  document.getElementById('m').textContent = pad(Math.floor((diff % 3600000) / 60000));
-  document.getElementById('s').textContent = pad(Math.floor((diff % 60000) / 1000));
+  ['d', 'h', 'm', 's'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (diff <= 0) {
+      el.textContent = '00';
+    } else {
+      const values = {
+        d: Math.floor(diff / 86400000),
+        h: Math.floor((diff % 86400000) / 3600000),
+        m: Math.floor((diff % 3600000) / 60000),
+        s: Math.floor((diff % 60000) / 1000)
+      };
+      el.textContent = pad(values[id]);
+    }
+  });
 }
 
 updateCountdown();
@@ -358,4 +394,7 @@ function spawnSparkle() {
   setTimeout(() => el.remove(), duration * 1000 + 200);
 }
 
-setInterval(spawnSparkle, 800);
+// Start sparkles after a delay
+setTimeout(() => {
+  setInterval(spawnSparkle, 800);
+}, 2000);
